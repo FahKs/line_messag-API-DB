@@ -1,6 +1,6 @@
 <?php
 // ตั้งค่า LINE API
-$access_token ='GC+HTqBDARcs0B/kmqeewiQ9PVm0hG7P2dQaftfXiUZvEN69jW2Q4CxXmCK0RhNfQMgXMIL6SKH5BBEQKmxKgg8bxUGBdSWsLVE8QlutkKaS3XiDnJdbU+Mk+J+QZ1WV/zXnzOBCLqnhZ+6gCuHJSwdB04t89/1O/w1cDnyilFU='; 
+$access_token = 'GC+HTqBDARcs0B/kmqeewiQ9PVm0hG7P2dQaftfXiUZvEN69jW2Q4CxXmCK0RhNfQMgXMIL6SKH5BBEQKmxKgg8bxUGBdSWsLVE8QlutkKaS3XiDnJdbU+Mk+J+QZ1WV/zXnzOBCLqnhZ+6gCuHJSwdB04t89/1O/w1cDnyilFU='; 
 
 // ตั้งค่าการเชื่อมต่อฐานข้อมูล
 $db_host = 'localhost'; 
@@ -39,21 +39,44 @@ if (!empty($events['events'])) {
                     // บันทึก Log ข้อความที่ได้รับ
                     error_log("Message received: " . $userMessage . " from user: " . $userId);
 
-                    // ตรวจสอบข้อความ
-                    if (in_array(strtolower($userMessage), ['สวัสดี', 'เข้าสู่ระบบ', 'hi', 'hello'])) {
-                        requestEmailVerification($replyToken, $access_token);
-                    } elseif (filter_var($userMessage, FILTER_VALIDATE_EMAIL)) {
-                        verifyUserByEmail($replyToken, $userMessage, $userId, $conn, $access_token);
-                    } elseif ($userMessage == "รายละเอียดบัญชี") {
-                        showAccountDetails($replyToken, $userId, $conn, $access_token);
-                    } elseif ($userMessage == "ติดต่อเจ้าหน้าที่") {
-                        contactSupport($replyToken, $access_token);
-                    } elseif ($userMessage == "ช่วยเหลือ") {
-                        showHelp($replyToken, $access_token);
+                    // 1) ตรวจสอบสถานะปัจจุบันของผู้ใช้ในตาราง line_user_state
+                    $currentState = getUserState($userId, $conn);
+
+                    // 2) ถ้าสถานะคือ WAITING_CUSTOMER_NAME แสดงว่าข้อความที่ส่งมาคือชื่อของลูกค้า
+                    if ($currentState == 'WAITING_CUSTOMER_NAME') {
+                        // เรียกฟังก์ชันสำหรับดึงข้อมูลลูกค้าจาก DB
+                        showCustomerContact($replyToken, $userId, $conn, $access_token, $userMessage);
+
+                        // เมื่อดึงข้อมูลเสร็จแล้ว อาจตั้งค่าสถานะกลับเป็น null หรือสถานะอื่น
+                        updateUserState($userId, null, $conn);
+
+                    // 3) หากสถานะยังไม่ใช่ WAITING_CUSTOMER_NAME ให้ดูเงื่อนไขคำสั่งปกติ
                     } else {
-                        // ข้อความอื่นๆ ที่ไม่เข้าเงื่อนไข
-                        $defaultReply = "สวัสดีครับ/ค่ะ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'เข้าสู่ระบบ' เพื่อเริ่มใช้งาน หรือเลือกเมนูด้านล่าง";
-                        sendReply($replyToken, $defaultReply, $access_token);
+                        if (in_array(strtolower($userMessage), ['สวัสดี', 'เข้าสู่ระบบ', 'hi', 'hello'])) {
+                            requestEmailVerification($replyToken, $access_token);
+
+                        } elseif (filter_var($userMessage, FILTER_VALIDATE_EMAIL)) {
+                            verifyUserByEmail($replyToken, $userMessage, $userId, $conn, $access_token);
+
+                        } elseif ($userMessage == "รายละเอียดบัญชี") {
+                            showAccountDetails($replyToken, $userId, $conn, $access_token);
+
+                        } elseif ($userMessage == "ติดต่อเจ้าหน้าที่") {
+                            contactSupport($replyToken, $access_token);
+
+                        } elseif ($userMessage == "ช่วยเหลือ") {
+                            showHelp($replyToken, $access_token);
+
+                        } elseif ($userMessage == "ข้อมูลติดต่อลูกค้า") {
+                            // เมื่อผู้ใช้กดปุ่ม "ข้อมูลติดต่อลูกค้า" -> ขอให้ระบุชื่อ
+                            // และตั้งสถานะเป็น WAITING_CUSTOMER_NAME
+                            askForCustomerName($replyToken, $userId, $conn, $access_token);
+
+                        } else {
+                            // ข้อความอื่นๆ ที่ไม่เข้าเงื่อนไข
+                            $defaultReply = "สวัสดีครับ/ค่ะ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'เข้าสู่ระบบ' เพื่อเริ่มใช้งาน หรือเลือกเมนูด้านล่าง";
+                            sendReply($replyToken, $defaultReply, $access_token);
+                        }
                     }
                 }
                 break;
@@ -65,7 +88,9 @@ if (!empty($events['events'])) {
     }
 }
 
-// ฟังก์ชันเมื่อผู้ใช้เพิ่มเพื่อน
+// ------------------ ฟังก์ชันต่าง ๆ ------------------ //
+
+// 1. ฟังก์ชันเมื่อผู้ใช้เพิ่มเพื่อน
 function handleFollow($event, $accessToken) {
     $userId = $event['source']['userId'];
     $welcomeMessage = "สวัสดี! ยินดีต้อนรับสู่ระบบ\n" . 
@@ -74,7 +99,7 @@ function handleFollow($event, $accessToken) {
     sendReply($event['replyToken'], $welcomeMessage, $accessToken);
 }
 
-// ฟังก์ชันขอให้ส่งอีเมลเพื่อยืนยันตัวตน
+// 2. ฟังก์ชันขอให้ส่งอีเมลเพื่อยืนยันตัวตน
 function requestEmailVerification($replyToken, $accessToken) {
     $message = "กรุณายืนยันตัวตนด้วย Email ของคุณ\n" .
                "โปรดพิมพ์ Email ที่ใช้ลงทะเบียนในระบบมาในช่องแชท";
@@ -82,7 +107,7 @@ function requestEmailVerification($replyToken, $accessToken) {
     sendReply($replyToken, $message, $accessToken);
 }
 
-// ฟังก์ชันตรวจสอบอีเมลและค้นหาผู้ใช้
+// 3. ฟังก์ชันตรวจสอบอีเมลและค้นหาผู้ใช้
 function verifyUserByEmail($replyToken, $email, $userId, $conn, $accessToken) {
     try {
         // ค้นหาผู้ใช้ในฐานข้อมูลจากอีเมล
@@ -123,7 +148,7 @@ function verifyUserByEmail($replyToken, $email, $userId, $conn, $accessToken) {
     }
 }
 
-// ฟังก์ชันสร้าง Flex Message สำหรับเมนูหลัก
+// 4. สร้าง Flex Message สำหรับเมนูหลัก
 function createWelcomeMenu($name) {
     return [
         "type" => "flex",
@@ -209,18 +234,70 @@ function createWelcomeMenu($name) {
     ];
 }
 
-// ฟังก์ชันแสดงรายละเอียดบัญชี
-function showAccountDetails($replyToken, $userId, $conn, $accessToken) {
-    $message = "ข้อมูลบัญชีของคุณ:\n\n" . 
-               "- ชื่อผู้ใช้: [ชื่อผู้ใช้]\n" . 
-               "- อีเมล: [อีเมล]\n" . 
-               "- สถานะ: ใช้งาน\n\n" .
-               "หากต้องการแก้ไขข้อมูล กรุณาติดต่อเจ้าหน้าที่";
-    
+// 5. ฟังก์ชันถามชื่อก่อน (เมื่อต้องการดูข้อมูลติดต่อลูกค้า)
+function askForCustomerName($replyToken, $userId, $conn, $accessToken) {
+    // อัปเดตสถานะผู้ใช้เป็น WAITING_CUSTOMER_NAME
+    updateUserState($userId, 'WAITING_CUSTOMER_NAME', $conn);
+
+    // ส่งข้อความให้ผู้ใช้ระบุชื่อ
+    $message = "กรุณาระบุชื่อลูกค้าที่ต้องการค้นหา:";
     sendReply($replyToken, $message, $accessToken);
 }
 
-// ฟังก์ชันติดต่อเจ้าหน้าที่
+// 6. ฟังก์ชันแสดงข้อมูลติดต่อลูกค้า (หลังจากผู้ใช้พิมพ์ชื่อมาแล้ว)
+function showCustomerContact($replyToken, $userId, $conn, $accessToken, $customerName) {
+    // ตัวอย่าง: ค้นในตาราง customers โดยใช้ชื่อ (customerName)
+    // ในโค้ดนี้ สมมติว่าตาราง customers มีคอลัมน์:
+    //   - name_customer
+    //   - phone_customer
+    //   - status_customer
+    // ต้องตรวจสอบว่าใน DB มีข้อมูลชื่อที่ตรงกันจริง ๆ
+
+    $sql = "SELECT name_customer, phone_customer, status_customer 
+            FROM customers 
+            WHERE name_customer = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $customerName);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    // Debug: ดูว่าค้นหาแล้วได้กี่แถว
+    error_log("Search customer: " . $customerName . " => rows: " . $result->num_rows);
+
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+
+        // สร้างข้อความที่ต้องการส่งกลับ
+        $message  = "ข้อมูลลูกค้า:\n";
+        $message .= "ชื่อ : " . $row['name_customer'] . "\n";
+        $message .= "เบอร์โทร : " . $row['phone_customer'] . "\n";
+        $message .= "สถานะ : " . $row['status_customer'] . "\n\n";
+        $message .= "ต้องการดูข้อมูลบิลลูกค้าหรือไม่?";
+    } else {
+        $message = "ไม่พบข้อมูลลูกค้าชื่อ: " . $customerName;
+    }
+
+    sendReply($replyToken, $message, $accessToken);
+}
+
+// 7. ฟังก์ชันแสดงรายละเอียดบัญชี (ตัวอย่างเดิม)
+function showAccountDetails($replyToken, $userId, $conn, $accessToken) {
+    // สมมุติข้อมูลของลูกค้า (ในโปรเจคจริง ควร query จากฐานข้อมูลโดยใช้ $userId)
+    $name_customer  = "สมชาย ใจดี";
+    $phone_customer = "081-234-5678";
+    $status_customer = "Active";
+    
+    // สร้างข้อความแสดงรายละเอียดลูกค้า
+    $message  = "ข้อมูลลูกค้า:\n";
+    $message .= "ชื่อ : " . $name_customer . "\n";
+    $message .= "ข้อมูลติดต่อลูกค้า : " . $phone_customer . "\n";
+    $message .= "สถานะ : " . $status_customer . "\n\n";
+    $message .= "ต้องการดูข้อมูลบิลนี้หรือไม่?";
+
+    sendReply($replyToken, $message, $accessToken);
+}
+
+// 8. ฟังก์ชันติดต่อเจ้าหน้าที่
 function contactSupport($replyToken, $accessToken) {
     $message = "ช่องทางติดต่อเจ้าหน้าที่:\n\n" . 
                "โทร: 02-XXX-XXXX\n" . 
@@ -231,7 +308,7 @@ function contactSupport($replyToken, $accessToken) {
     sendReply($replyToken, $message, $accessToken);
 }
 
-// ฟังก์ชันแสดงความช่วยเหลือ
+// 9. ฟังก์ชันแสดงความช่วยเหลือ
 function showHelp($replyToken, $accessToken) {
     $message = "วิธีใช้งาน LINE Bot:\n\n" . 
                "1. พิมพ์ 'เข้าสู่ระบบ' เพื่อยืนยันตัวตน\n" . 
@@ -242,7 +319,7 @@ function showHelp($replyToken, $accessToken) {
     sendReply($replyToken, $message, $accessToken);
 }
 
-// ฟังก์ชันจัดการ Postback
+// 10. ฟังก์ชันจัดการ Postback
 function handlePostback($event, $conn, $accessToken) {
     $replyToken = $event['replyToken'];
     $data = $event['postback']['data'];
@@ -252,6 +329,33 @@ function handlePostback($event, $conn, $accessToken) {
     
     sendReply($replyToken, "ได้รับคำสั่ง: " . $data, $accessToken);
 }
+
+// ------------------ ส่วนจัดการ User State ใน DB ------------------ //
+
+// ฟังก์ชันดึงสถานะผู้ใช้จากตาราง line_user_state
+function getUserState($userId, $conn) {
+    $sql = "SELECT state FROM line_user_state WHERE user_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['state'];
+    }
+    return null;
+}
+
+// ฟังก์ชันอัปเดตสถานะผู้ใช้ในตาราง line_user_state
+function updateUserState($userId, $state, $conn) {
+    $sql = "INSERT INTO line_user_state (user_id, state, updated_at) VALUES (?, ?, NOW())
+            ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $userId, $state);
+    $stmt->execute();
+}
+
+// ------------------ ฟังก์ชันส่งข้อความ (Reply / Flex) ------------------ //
 
 // ฟังก์ชันส่งข้อความ Flex Reply
 function sendFlexReply($replyToken, $flexMessage, $accessToken) {
