@@ -8,7 +8,7 @@ $line_bot_token = "GC+HTqBDARcs0B/kmqeewiQ9PVm0hG7P2dQaftfXiUZvEN69jW2Q4CxXmCK0R
 // เพิ่ม Error log เพื่อตรวจสอบการทำงาน
 error_log("Callback script started");
 
-// ตั้งค่าการเชื่อมต่อฐานข้อมูล
+// ตั้งค่าการเชื่อมต่อฐานข้อมูล (หากมีการใช้งานในส่วนอื่นๆ ของระบบ)
 $db_host = 'localhost'; 
 $db_user = 'root';     
 $db_pass = '';         
@@ -281,17 +281,8 @@ if (isset($tokenData['access_token'])) {
         </body>
         </html>";
         
-        // บันทึก Line ID ลงในฐานข้อมูลเพื่อรอการยืนยันอีเมล
-        $sql = "INSERT INTO line_verification (line_id, display_name, created_at) VALUES (?, ?, NOW()) 
-                ON DUPLICATE KEY UPDATE display_name = ?, created_at = NOW()";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sss", $userId, $userName, $userName);
-        
-        if (!$stmt->execute()) {
-            error_log("Failed to insert LINE ID: " . $stmt->error);
-        } else {
-            error_log("LINE ID inserted/updated successfully");
-        }
+        // ส่วนที่เกี่ยวข้องกับการบันทึกข้อมูลลงในตาราง line_verification ถูกลบออกแล้ว
+
     } else {
         error_log("Failed to get user profile");
         echo "Failed to get user profile information.";
@@ -300,9 +291,6 @@ if (isset($tokenData['access_token'])) {
     error_log("Failed to get access token: " . json_encode($tokenData));
     echo "Failed to authenticate with LINE.";
 }
-
-// สร้างตาราง webhook_handler.php เพื่อจัดการกับข้อความที่ส่งมาจาก LINE
-// ฟังก์ชันนี้จะถูกเรียกเมื่อผู้ใช้ส่งข้อความกลับมาหลังจากการเชื่อมต่อสำเร็จ
 
 // ปิดการเชื่อมต่อฐานข้อมูล
 $conn->close();
