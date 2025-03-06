@@ -370,61 +370,164 @@ function sendToMainMenu($replyToken, $accessToken) {
 
     sendFlexReply($replyToken, $message, $accessToken);
 }
-
-function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
-    // ค้นหาชื่อลูกค้าจาก id_customer
-    $sqlCustomer = "SELECT name_customer FROM customers WHERE id_customer = ?";
-    $stmtCustomer = $conn->prepare($sqlCustomer);
-    $stmtCustomer->bind_param("s", $customerId);
-    $stmtCustomer->execute();
-    $resultCustomer = $stmtCustomer->get_result();
-
-    if ($resultCustomer->num_rows > 0) {
-        // ดึงชื่อลูกค้า
-        $customerRow = $resultCustomer->fetch_assoc();
-        $nameCustomer = $customerRow['name_customer'];
-
-        // ค้นหาข้อมูลบิลของลูกค้า
-        $sqlBill = "SELECT number_bill, type_bill, end_date
-                    FROM bill_customer
-                    WHERE id_customer = ?";
-        $stmtBill = $conn->prepare($sqlBill);
-        $stmtBill->bind_param("s", $customerId);
-        $stmtBill->execute();
-        $resultBill = $stmtBill->get_result();
-
-        if ($resultBill->num_rows > 0) {
-            // ถ้ามีบิลหลายใบ ให้แสดงรายการบิลทั้งหมด
-            $message = "ข้อมูลบิลของลูกค้า (Name: $nameCustomer):\n\n";
-            
-            while ($bill = $resultBill->fetch_assoc()) {
-                $message .= "หมายเลขบิล: " . $bill['number_bill'] . "\n";
-                $message .= "ประเภทบิล: " . $bill['type_bill'] . "\n";
-                $message .= "วันหมดสัญญาบิล: " . $bill['end_date'] . "\n\n";
-            }
-        } else {
-            $message = "ไม่พบข้อมูลบิลของลูกค้า (Name: $nameCustomer)";
+// ฟังก์ชันคำนวณรายได้รวมจากทุกๆ บิลของลูกค้า
+function getTotalRevenue($customerId, $conn) {
+    // เพิ่ม error log เพื่อตรวจสอบว่าฟังก์ชันถูกเรียกด้วย customerId ที่ถูกต้อง
+    error_log("Calculating total revenue for customer ID: " . $customerId);
+    
+    // ปรับ SQL ให้เรียบง่ายขึ้นและตรวจสอบว่าตรงกับโครงสร้างฐานข้อมูลจริง
+    $sql = "
+        SELECT SUM(o.all_price) AS total_revenue
+        FROM bill_customer b
+        JOIN service_customer s ON b.id_bill = s.id_bill
+        JOIN package_list p ON s.id_service = p.id_service
+        JOIN product_list pr ON p.id_package = pr.id_package
+        JOIN overide o ON pr.id_product = o.id_product
+        WHERE b.id_customer = ?
+    ";
+    
+    try {
+        $stmt = $conn->prepare($sql);
+        
+        // ตรวจสอบว่า prepare statement สำเร็จหรือไม่
+        if ($stmt === false) {
+            error_log("SQL Prepare Error: " . $conn->error);
+            return 0;
         }
-
-        sendReply($replyToken, $message, $accessToken);
-    } else {
-        $message = "ไม่พบข้อมูลลูกค้า ID: $customerId";
-        sendReply($replyToken, $message, $accessToken);
+        
+        $stmt->bind_param("i", $customerId);
+        $success = $stmt->execute();
+        
+        // ตรวจสอบว่า execute สำเร็จหรือไม่
+        if ($success === false) {
+            error_log("SQL Execute Error: " . $stmt->error);
+            return 0;
+        }
+        
+        $result = $stmt->get_result();
+        
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            $total = $row['total_revenue'] ? $row['total_revenue'] : 0;
+            error_log("Total Revenue calculated: " . $total);
+            return $total;
+        } else {
+            error_log("No revenue data found or SQL error");
+            return 0;
+        }
+    } catch (Exception $e) {
+        error_log("Exception in getTotalRevenue: " . $e->getMessage());
+        return 0;
     }
 }
 
+// เพิ่มฟังก์ชัน showCustomerBill ที่ขาดหายไป
+function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
+    error_log("Showing bills for customer ID: " . $customerId);
+    
+    // 1. ดึงข้อมูลลูกค้า
+    $sqlCustomer = "SELECT name_customer FROM customers WHERE id_customer = ?";
+    $stmtCustomer = $conn->prepare($sqlCustomer);
+    $stmtCustomer->bind_param("i", $customerId);
+    $stmtCustomer->execute();
+    $resultCustomer = $stmtCustomer->get_result();
+    
+    if ($resultCustomer->num_rows == 0) {
+        sendReply($replyToken, "ไม่พบข้อมูลลูกค้า", $accessToken);
+        return;
+    }
+    
+    $customer = $resultCustomer->fetch_assoc();
+    $customerName = $customer['name_customer'];
+    
+    // 2. ดึงข้อมูลบิลทั้งหมดของลูกค้า
+    $sqlBills = "SELECT id_bill, number_bill, type_bill, end_date FROM bill_customer WHERE id_customer = ?";
+    $stmtBills = $conn->prepare($sqlBills);
+    $stmtBills->bind_param("i", $customerId);
+    $stmtBills->execute();
+    $resultBills = $stmtBills->get_result();
+    
+    // 3. คำนวณรายได้รวม
+    $totalRevenue = getTotalRevenue($customerId, $conn);
+    
+    // 4. สร้างข้อความตอบกลับ
+    $message = "ข้อมูลบิลของลูกค้า: " . $customerName . "\n\n";
+    
+    if ($resultBills->num_rows > 0) {
+        while ($bill = $resultBills->fetch_assoc()) {
+            $message .= "บิลเลขที่: " . $bill['number_bill'] . "\n";
+            $message .= "ประเภท: " . $bill['type_bill'] . "\n";
+            $message .= "วันหมดอายุ: " . $bill['end_date'] . "\n\n";
+        }
+        
+        // เพิ่มข้อมูลรายได้รวม
+        $message .= "รายได้รวมทั้งหมด: " . number_format($totalRevenue, 2) . " บาท";
+    } else {
+        $message .= "ไม่พบข้อมูลบิลของลูกค้าท่านนี้";
+    }
+    
+    sendReply($replyToken, $message, $accessToken);
+}
+
+// เพิ่มฟังก์ชันตรวจสอบโครงสร้างฐานข้อมูล (สำหรับการแก้ไขปัญหา)
+function debugDatabaseSchema($conn) {
+    // ตรวจสอบโครงสร้างตาราง bill_customer
+    $tables = [
+        'bill_customer', 
+        'service_customer', 
+        'package_list', 
+        'product_list', 
+        'overide'
+    ];
+    
+    $debugInfo = "Database Schema Debug:\n";
+    
+    foreach ($tables as $table) {
+        $result = $conn->query("DESCRIBE " . $table);
+        if ($result) {
+            $debugInfo .= "Table {$table} exists with columns:\n";
+            while ($row = $result->fetch_assoc()) {
+                $debugInfo .= "- " . $row['Field'] . " (" . $row['Type'] . ")\n";
+            }
+        } else {
+            $debugInfo .= "Table {$table} does not exist or error: " . $conn->error . "\n";
+        }
+        $debugInfo .= "\n";
+    }
+    
+    error_log($debugInfo);
+    return $debugInfo;
+}
 
 function showAccountDetails($replyToken, $userId, $conn, $accessToken) {
-    $name_customer  = "สมชาย ใจดี";
-    $phone_customer = "081-234-5678";
-    $status_customer = "Active";
-    
-    $message  = "ข้อมูลลูกค้า:\n";
-    $message .= "ชื่อ : " . $name_customer . "\n";
-    $message .= "ข้อมูลติดต่อลูกค้า : " . $phone_customer . "\n";
-    $message .= "สถานะ : " . $status_customer . "\n\n";
-    $message .= "ต้องการดูข้อมูลบิลนี้หรือไม่?";
-    sendReply($replyToken, $message, $accessToken);
+    // ค้นหาข้อมูลลูกค้าจากฐานข้อมูล
+    $sql = "SELECT name_customer, phone_customer, status_customer FROM customers WHERE id_customer = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $userId); // ใช้ userId เพื่อค้นหาข้อมูลของลูกค้า
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        // หากพบข้อมูลลูกค้า
+        $customer = $result->fetch_assoc();
+        $name_customer = $customer['name_customer'];
+        $phone_customer = $customer['phone_customer'];
+        $status_customer = $customer['status_customer'];
+
+        // สร้างข้อความแสดงข้อมูลลูกค้า
+        $message = "ข้อมูลลูกค้า:\n";
+        $message .= "ชื่อ : " . $name_customer . "\n";
+        $message .= "ข้อมูลติดต่อลูกค้า : " . $phone_customer . "\n";
+        $message .= "สถานะ : " . $status_customer . "\n\n";
+        $message .= "ต้องการดูข้อมูลบิลนี้หรือไม่?";
+
+        // ส่งข้อความตอบกลับ
+        sendReply($replyToken, $message, $accessToken);
+    } else {
+        // หากไม่พบข้อมูลลูกค้า
+        $message = "ไม่พบข้อมูลของคุณ กรุณาลองใหม่อีกครั้ง!";
+        sendReply($replyToken, $message, $accessToken);
+    }
 }
 
 function contactSupport($replyToken, $accessToken) {
@@ -450,6 +553,7 @@ function handlePostback($event, $conn, $accessToken) {
     $data = $event['postback']['data'];
     sendReply($replyToken, "ได้รับคำสั่ง: " . $data, $accessToken);
 }
+
 // ------------------ ส่วนจัดการ User State ------------------ //
 function updateUserState($userId, $state, $conn) {
     $sql = "INSERT INTO line_user_state (user_id, state, updated_at) VALUES (?, ?, NOW())
@@ -554,6 +658,3 @@ function sendQuickReply($replyToken, $message, $accessToken, $actions = []) {
 }
 
 ?>
-
-
-        
