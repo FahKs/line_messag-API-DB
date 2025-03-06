@@ -131,8 +131,8 @@ function createWelcomeMenu($name) {
                         "style" => "primary",
                         "action" => [
                             "type" => "message",
-                            "label" => "รายละเอียดบัญชี",
-                            "text" => "รายละเอียดบัญชี"
+                            "label" => "ข้อมูลติดต่อลูกค้า",
+                            "text" => "ข้อมูลติดต่อลูกค้า"
                         ],
                         "color" => "#1DB446"
                     ],
@@ -141,8 +141,8 @@ function createWelcomeMenu($name) {
                         "style" => "primary",
                         "action" => [
                             "type" => "message",
-                            "label" => "ติดต่อเจ้าหน้าที่",
-                            "text" => "ติดต่อเจ้าหน้าที่"
+                            "label" => "ข้อมูลบิลลูกค้า",
+                            "text" => "ข้อมูลบิลลูกค้า"
                         ],
                         "color" => "#4169E1"
                     ],
