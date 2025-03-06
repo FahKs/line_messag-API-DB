@@ -41,11 +41,11 @@ if (!empty($events['events'])) {
                     $currentState = getUserState($userId, $conn);
 
                     if ($currentState == 'WAITING_CUSTOMER_NAME') {
-                        // เมื่อผู้ใช้พิมพ์ชื่อ ลูกค้าจะถูกค้นหาและ state จะถูกเปลี่ยนเป็น WAITING_BILL_CONFIRM:<id_customer>
+                        // เมื่อผู้ใช้พิมพ์ชื่อลูกค้า
                         showCustomerContact($replyToken, $userId, $conn, $access_token, $userMessage);
-                        // ไม่ต้องเคลียร์ stateที่นี่ เพราะจะเปลี่ยนภายใน showCustomerContact
+                        // state จะถูกอัปเดตภายใน showCustomerContact
                     } elseif (strpos($currentState, 'WAITING_BILL_CONFIRM:') === 0) {
-                        // เมื่อผู้ใช้ตอบ Quick Reply ว่า "ดู" หรือ "ไม่ดู"
+                        // เมื่อผู้ใช้ตอบ Quick Reply "ดู" หรือ "ไม่ดู"
                         $parts = explode(':', $currentState);
                         if (count($parts) == 2) {
                             $customerId = $parts[1]; // id_customer
@@ -241,16 +241,13 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
         $customerId = $row['id_customer'];
-        $message  = "ข้อมูลลูกค้า:\n";
-        $message .= "ชื่อ : " . $row['name_customer'] . "\n";
-        $message .= "เบอร์โทร : " . $row['phone_customer'] . "\n";
-        $message .= "สถานะ : " . $row['status_customer'] . "\n\n";
-        $message .= "ต้องการดูข้อมูลบิลลูกค้าหรือไม่?";
-
+        // ปรับข้อความให้ง่ายต่อการแสดง Quick Reply
+        $message  = "ข้อมูลลูกค้า: ชื่อ: " . $row['name_customer'] . ", เบอร์: " . $row['phone_customer'] . ", สถานะ: " . $row['status_customer'] . ". ดูข้อมูลบิลหรือไม่?";
+        
         // ตั้ง state ให้รอการตอบ Quick Reply โดยแนบ id_customer
         updateUserState($userId, 'WAITING_BILL_CONFIRM:' . $customerId, $conn);
-
-        sendQuickReply($replyToken, $message, $accessToken, [
+        
+        $quickActions = [
             [
                 "action" => [
                     "type" => "message",
@@ -265,7 +262,10 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
                     "text" => "ไม่ดู"
                 ]
             ]
-        ]);
+        ];
+        // Debug log Quick Reply items
+        error_log("Quick Reply items: " . json_encode($quickActions));
+        sendQuickReply($replyToken, $message, $accessToken, $quickActions);
     } else {
         $message = "ไม่พบข้อมูลลูกค้าชื่อ: " . $customerName;
         sendReply($replyToken, $message, $accessToken);
@@ -273,25 +273,28 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
 }
 
 // ฟังก์ชัน showCustomerBill: ค้นหาข้อมูลบิลลูกค้าจากตาราง bill_customer
-function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
-    $sql = "SELECT bill_customer, type_bill, end_date
+function showCustomerBill($replyToken, $name_customer, $conn, $accessToken) {
+    $sql = "SELECT number_bill, type_bill, end_date
             FROM bill_customer
-            WHERE id_customer = ?
-            LIMIT 1";
+            WHERE id_customer = ?";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $customerId);
+    $stmt->bind_param("s", $name_customer );
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        $bill = $result->fetch_assoc();
-        $message  = "บิลลูกค้า (ID: $customerId)\n";
-        $message .= "หมายเลขบิล: " . $bill['bill_customer'] . "\n";
-        $message .= "ประเภทบิล: " . $bill['type_bill'] . "\n";
-        $message .= "วันหมดสัญญาบิล: " . $bill['end_date'];
+        // ถ้ามีบิลหลายใบ ให้แสดงรายการบิลทั้งหมด
+        $message = "ข้อมูลบิลของลูกค้า (Name: $name_customer):\n\n";
+        
+        while ($bill = $result->fetch_assoc()) {
+            $message .= "หมายเลขบิล: " . $bill['number_bill'] . "\n";
+            $message .= "ประเภทบิล: " . $bill['type_bill'] . "\n";
+            $message .= "วันหมดสัญญาบิล: " . $bill['end_date'] . "\n\n";
+        }
     } else {
-        $message = "ไม่พบข้อมูลบิลของลูกค้า ID: $customerId";
+        $message = "ไม่พบข้อมูลบิลของลูกค้า Name: $name_customer";
     }
+    
     sendReply($replyToken, $message, $accessToken);
 }
 
@@ -421,6 +424,9 @@ function sendQuickReply($replyToken, $message, $accessToken, $actions = []) {
             "action" => $action['action']
         ];
     }
+    // Debug: log quick reply items array
+    error_log("Quick Reply Items: " . json_encode($quickReplyItems));
+    
     $data = [
         'replyToken' => $replyToken,
         'messages' => [
@@ -446,3 +452,5 @@ function sendQuickReply($replyToken, $message, $accessToken, $actions = []) {
     return $response;
 }
 ?>
+
+        
