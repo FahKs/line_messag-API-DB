@@ -125,7 +125,7 @@ function verifyUserByEmail($replyToken, $email, $userId, $conn, $accessToken) {
                 sendReply($replyToken, $message, $accessToken);
             }
         } else {
-            $message = "ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบความถูกต้องหรือลงทะเบียนก่อนใช้งาน";
+            $message = "ไม่พบอีเมลนี้ในระบบ กรุณาลงทะเบียนก่อนใช้งานได้ที่นี่:https://246c-125-26-7-18.ngrok-free.app/NT/page/login.php";
             sendReply($replyToken, $message, $accessToken);
         }
     } catch (Exception $e) {
@@ -239,14 +239,14 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
     error_log("Search customer: " . $customerName . " => rows: " . $result->num_rows);
 
     if ($result->num_rows > 0) {
+        // ถ้ามีข้อมูลลูกค้า
         $row = $result->fetch_assoc();
         $customerId = $row['id_customer'];
-        // ปรับข้อความให้ง่ายต่อการแสดง Quick Reply
-        $message  = "ข้อมูลลูกค้า: ชื่อ: " . $row['name_customer'] . ", เบอร์: " . $row['phone_customer'] . ", สถานะ: " . $row['status_customer'] . ". ดูข้อมูลบิลหรือไม่?";
-        
+        $message = "ข้อมูลลูกค้า: ชื่อ: " . $row['name_customer'] . ", เบอร์: " . $row['phone_customer'] . ", สถานะ: " . $row['status_customer'] . ". ต้องการดูข้อมูลบิลหรือไม่?";
+
         // ตั้ง state ให้รอการตอบ Quick Reply โดยแนบ id_customer
         updateUserState($userId, 'WAITING_BILL_CONFIRM:' . $customerId, $conn);
-        
+
         $quickActions = [
             [
                 "action" => [
@@ -263,40 +263,156 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
                 ]
             ]
         ];
-        // Debug log Quick Reply items
-        error_log("Quick Reply items: " . json_encode($quickActions));
+
         sendQuickReply($replyToken, $message, $accessToken, $quickActions);
     } else {
-        $message = "ไม่พบข้อมูลลูกค้าชื่อ: " . $customerName;
+        // ถ้าไม่พบข้อมูลลูกค้า
+        $message = "ไม่พบข้อมูลลูกค้าชื่อ: " . $customerName . ". กรุณาลองอีกครั้ง";
+
+        // สร้าง Quick Reply ที่เชื่อมกลับไปยังเมนูหลัก
+        $quickActions = [
+            [
+                "action" => [
+                    "type" => "message",
+                    "label" => "กลับไปที่เมนูหลัก",
+                    "text" => "กลับไปที่เมนูหลัก"
+                ]
+            ]
+        ];
+
+        sendQuickReply($replyToken, $message, $accessToken, $quickActions);
+
+        // อัปเดต state ให้กลับไปที่เมนูหลัก
+        updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
+
+        // ส่งเมนูหลัก
+        sendToMainMenu($replyToken, $accessToken);
+    }
+}
+
+
+// ฟังก์ชัน getUserState: ตรวจสอบสถานะของผู้ใช้
+function getUserState($userId, $conn) {
+    $sql = "SELECT state FROM line_user_state WHERE user_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        return $row['state'];
+    }
+    return null;
+}
+
+// ฟังก์ชันส่ง Flex Message สำหรับเมนูหลัก
+function sendToMainMenu($replyToken, $accessToken) {
+    $message = [
+        "type" => "flex",
+        "altText" => "เมนูหลัก",
+        "contents" => [
+            "type" => "bubble",
+            "body" => [
+                "type" => "box",
+                "layout" => "vertical",
+                "contents" => [
+                    [
+                        "type" => "text",
+                        "text" => "ยินดีต้อนรับ",
+                        "weight" => "bold",
+                        "size" => "xl",
+                        "align" => "center"
+                    ],
+                    [
+                        "type" => "text",
+                        "text" => "กรุณาเลือกเมนูด้านล่าง",
+                        "size" => "sm",
+                        "color" => "#aaaaaa",
+                        "align" => "center"
+                    ]
+                ]
+            ],
+            "footer" => [
+                "type" => "box",
+                "layout" => "vertical",
+                "spacing" => "sm",
+                "contents" => [
+                    [
+                        "type" => "button",
+                        "action" => [
+                            "type" => "message",
+                            "label" => "ข้อมูลติดต่อลูกค้า",
+                            "text" => "ข้อมูลติดต่อลูกค้า"
+                        ],
+                        "color" => "#1DB446"
+                    ],
+                    [
+                        "type" => "button",
+                        "action" => [
+                            "type" => "message",
+                            "label" => "ข้อมูลบิลลูกค้า",
+                            "text" => "ข้อมูลบิลลูกค้า"
+                        ],
+                        "color" => "#4169E1"
+                    ],
+                    [
+                        "type" => "button",
+                        "action" => [
+                            "type" => "message",
+                            "label" => "ช่วยเหลือ",
+                            "text" => "ช่วยเหลือ"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ];
+
+    sendFlexReply($replyToken, $message, $accessToken);
+}
+
+function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
+    // ค้นหาชื่อลูกค้าจาก id_customer
+    $sqlCustomer = "SELECT name_customer FROM customers WHERE id_customer = ?";
+    $stmtCustomer = $conn->prepare($sqlCustomer);
+    $stmtCustomer->bind_param("s", $customerId);
+    $stmtCustomer->execute();
+    $resultCustomer = $stmtCustomer->get_result();
+
+    if ($resultCustomer->num_rows > 0) {
+        // ดึงชื่อลูกค้า
+        $customerRow = $resultCustomer->fetch_assoc();
+        $nameCustomer = $customerRow['name_customer'];
+
+        // ค้นหาข้อมูลบิลของลูกค้า
+        $sqlBill = "SELECT number_bill, type_bill, end_date
+                    FROM bill_customer
+                    WHERE id_customer = ?";
+        $stmtBill = $conn->prepare($sqlBill);
+        $stmtBill->bind_param("s", $customerId);
+        $stmtBill->execute();
+        $resultBill = $stmtBill->get_result();
+
+        if ($resultBill->num_rows > 0) {
+            // ถ้ามีบิลหลายใบ ให้แสดงรายการบิลทั้งหมด
+            $message = "ข้อมูลบิลของลูกค้า (Name: $nameCustomer):\n\n";
+            
+            while ($bill = $resultBill->fetch_assoc()) {
+                $message .= "หมายเลขบิล: " . $bill['number_bill'] . "\n";
+                $message .= "ประเภทบิล: " . $bill['type_bill'] . "\n";
+                $message .= "วันหมดสัญญาบิล: " . $bill['end_date'] . "\n\n";
+            }
+        } else {
+            $message = "ไม่พบข้อมูลบิลของลูกค้า (Name: $nameCustomer)";
+        }
+
+        sendReply($replyToken, $message, $accessToken);
+    } else {
+        $message = "ไม่พบข้อมูลลูกค้า ID: $customerId";
         sendReply($replyToken, $message, $accessToken);
     }
 }
 
-// ฟังก์ชัน showCustomerBill: ค้นหาข้อมูลบิลลูกค้าจากตาราง bill_customer
-function showCustomerBill($replyToken, $name_customer, $conn, $accessToken) {
-    $sql = "SELECT number_bill, type_bill, end_date
-            FROM bill_customer
-            WHERE id_customer = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $name_customer );
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows > 0) {
-        // ถ้ามีบิลหลายใบ ให้แสดงรายการบิลทั้งหมด
-        $message = "ข้อมูลบิลของลูกค้า (Name: $name_customer):\n\n";
-        
-        while ($bill = $result->fetch_assoc()) {
-            $message .= "หมายเลขบิล: " . $bill['number_bill'] . "\n";
-            $message .= "ประเภทบิล: " . $bill['type_bill'] . "\n";
-            $message .= "วันหมดสัญญาบิล: " . $bill['end_date'] . "\n\n";
-        }
-    } else {
-        $message = "ไม่พบข้อมูลบิลของลูกค้า Name: $name_customer";
-    }
-    
-    sendReply($replyToken, $message, $accessToken);
-}
 
 function showAccountDetails($replyToken, $userId, $conn, $accessToken) {
     $name_customer  = "สมชาย ใจดี";
@@ -312,19 +428,19 @@ function showAccountDetails($replyToken, $userId, $conn, $accessToken) {
 }
 
 function contactSupport($replyToken, $accessToken) {
-    $message = "ช่องทางติดต่อเจ้าหน้าที่:\n\n" .
-               "โทร: 02-XXX-XXXX\n" .
-               "อีเมล: support@example.com\n" .
-               "Line Official: @example\n\n" .
+    $message = "ช่องทางติดต่อเจ้าหน้าที่:\n\n" . 
+               "โทร: 02-XXX-XXXX\n" . 
+               "อีเมล: support@example.com\n" . 
+               "Line Official: @example\n\n" . 
                "เวลาทำการ: จันทร์-ศุกร์ 8.30-17.30 น.";
     sendReply($replyToken, $message, $accessToken);
 }
 
 function showHelp($replyToken, $accessToken) {
-    $message = "วิธีใช้งาน LINE Bot:\n\n" .
-               "1. พิมพ์ 'เข้าสู่ระบบ' เพื่อยืนยันตัวตน\n" .
-               "2. กรอกอีเมลที่ลงทะเบียนไว้\n" .
-               "3. เลือกเมนูที่ต้องการใช้งาน\n\n" .
+    $message = "วิธีใช้งาน LINE Bot:\n\n" . 
+               "1. พิมพ์ 'เข้าสู่ระบบ' เพื่อยืนยันตัวตน\n" . 
+               "2. กรอกอีเมลที่ลงทะเบียนไว้\n" . 
+               "3. เลือกเมนูที่ต้องการใช้งาน\n\n" . 
                "หากพบปัญหา กรุณาติดต่อเจ้าหน้าที่";
     sendReply($replyToken, $message, $accessToken);
 }
@@ -334,22 +450,7 @@ function handlePostback($event, $conn, $accessToken) {
     $data = $event['postback']['data'];
     sendReply($replyToken, "ได้รับคำสั่ง: " . $data, $accessToken);
 }
-
 // ------------------ ส่วนจัดการ User State ------------------ //
-
-function getUserState($userId, $conn) {
-    $sql = "SELECT state FROM line_user_state WHERE user_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    if ($result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        return $row['state'];
-    }
-    return null;
-}
-
 function updateUserState($userId, $state, $conn) {
     $sql = "INSERT INTO line_user_state (user_id, state, updated_at) VALUES (?, ?, NOW())
             ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()";
@@ -451,6 +552,8 @@ function sendQuickReply($replyToken, $message, $accessToken, $actions = []) {
     error_log("LINE API Response Code (Quick Reply): " . $httpCode . " Response: " . $response);
     return $response;
 }
+
 ?>
+
 
         
