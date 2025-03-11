@@ -1,3 +1,4 @@
+
 <?php
 // ตั้งค่า LINE API
 $access_token = 'GC+HTqBDARcs0B/kmqeewiQ9PVm0hG7P2dQaftfXiUZvEN69jW2Q4CxXmCK0RhNfQMgXMIL6SKH5BBEQKmxKgg8bxUGBdSWsLVE8QlutkKaS3XiDnJdbU+Mk+J+QZ1WV/zXnzOBCLqnhZ+6gCuHJSwdB04t89/1O/w1cDnyilFU='; 
@@ -460,7 +461,7 @@ function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
     }
 }
 
-function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
+function showBillDetails($replyToken, $billNumber, $conn, $accessToken) { 
     error_log("Retrieving details for bill number: " . $billNumber);
 
     // 1. ดึง id_bill จากหมายเลขบิล
@@ -528,7 +529,7 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
     // Check if services exist and add to message
     if ($resultServices && $resultServices->num_rows > 0) {
         $message .= "บริการ:\n";
-        $totalOveride = 0;
+        $totalOverride = 0;
 
         while ($service = $resultServices->fetch_assoc()) {
             $message .= "- หมายเลขบริการ: " . $service['code_service'] . "\n";
@@ -536,6 +537,7 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
             $message .= "  ประเภทอุปกรณ์: " . $service['type_gadget'] . "\n";
             $message .= "  สถานะ: " . $service['status_service'] . "\n";
             
+            // แสดง Package และ Product
             if ($service['name_package']) {
                 $message .= "  แพ็คเกจ: " . $service['name_package'] . "\n";
             }
@@ -544,7 +546,7 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
                 $message .= "  โปรดักส์: " . $service['name_product'] . "\n";
             }
 
-            // Add price information if available
+            // แสดงราคา
             if (isset($service['mainpackage_price'])) {
                 $message .= "  ราคาแพ็กเกจหลัก: " . number_format($service['mainpackage_price'], 2) . " บาท\n";
             }
@@ -555,14 +557,14 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
 
             if (isset($service['all_price'])) {
                 $message .= "  ราคารวม: " . number_format($service['all_price'], 2) . " บาท\n";
-                $totalOveride += $service['all_price'];
+                $totalOverride += $service['all_price'];
             }
 
             $message .= "\n";
         }
 
-        // Add total override price
-        $message .= "ราคา Override รวมทั้งหมด: " . number_format($totalOveride, 2) . " บาท";
+        // เพิ่มราคา Override รวมทั้งหมด
+        $message .= "ราคา Override รวมทั้งหมด: " . number_format($totalOverride, 2) . " บาท";
     } else {
         $message .= "บริการ: ไม่พบข้อมูล";
     }
