@@ -39,7 +39,38 @@ if (!empty($events['events'])) {
                 
                         // ตรวจสอบ state ปัจจุบันของผู้ใช้
                         $currentState = getUserState($userId, $conn);
-                
+            
+                    // เพิ่มเงื่อนไขเมื่อผู้ใช้พิมพ์ "เมนูหลัก", "home", "กลับ", หรือ "หน้าแรก"
+                    if (in_array(strtolower($userMessage), ['เมนูหลัก', 'home', 'กลับ', 'หน้าแรก'])) {
+                        // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+                        $welcomeMenu = createWelcomeMenu("สมาชิก");  // สามารถปรับชื่อสมาชิกตามความเหมาะสม
+                        sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
+
+                        // อัปเดตสถานะผู้ใช้ให้เป็น "WAITING_MAIN_MENU"
+                        updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
+                        return;  // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
+                    }
+                        // เพิ่มเงื่อนไขเมื่อผู้ใช้เลือก "ไม่สนใจบิล" จาก Quick Reply
+                        $lowerMsg = strtolower(trim($userMessage));  // ทำให้ข้อความเป็นตัวเล็ก
+                        if ($lowerMsg == "ไม่สนใจบิล") {
+                            // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+                            $welcomeMenu = createWelcomeMenu("สมาชิก");  // ใช้ชื่อสมาชิก
+                            sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
+
+                            // อัปเดตสถานะผู้ใช้ให้เป็น null (กลับไปที่เมนูหลัก)
+                            updateUserState($userId, null, $conn);
+                            return;  // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
+                        }
+
+                        if ($lowerMsg == "กลับไปที่เมนูหลัก") {
+                            // ส่งเมนูหลักกลับไป
+                            $welcomeMenu = createWelcomeMenu("สมาชิก");  // ใช้ชื่อสมาชิก
+                            sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
+                        
+                            // อัปเดตสถานะผู้ใช้ให้เป็น null (กลับไปที่เมนูหลัก)
+                            updateUserState($userId, null, $conn);
+                        }
+                        
                         // ตรวจสอบว่าข้อความเป็นหมายเลขบิลหรือไม่ (เป็นตัวเลขทั้งหมด)
                         if (is_numeric($userMessage)) {
                             showBillDetails($replyToken, $userMessage, $conn, $access_token);
@@ -141,7 +172,7 @@ function verifyUserByEmail($replyToken, $email, $userId, $conn, $accessToken) {
                 sendReply($replyToken, $message, $accessToken);
             }
         } else {
-            $message = "ไม่พบอีเมลนี้ในระบบ กรุณาลงทะเบียนก่อนใช้งานได้ที่นี่:https://ef9a-122-155-57-103.ngrok-free.app/NT/page/login.php";
+            $message = "ไม่พบอีเมลนี้ในระบบ กรุณาลงทะเบียนก่อนใช้งานได้ที่นี่:https://21b0-182-52-113-14.ngrok-free.app/NTT/page/login.php";
             sendReply($replyToken, $message, $accessToken);
         }
     } catch (Exception $e) {
@@ -285,25 +316,25 @@ function showCustomerContact($replyToken, $userId, $conn, $accessToken, $custome
         // ถ้าไม่พบข้อมูลลูกค้า
         $message = "ไม่พบข้อมูลลูกค้าชื่อ: " . $customerName . ". กรุณาลองอีกครั้ง";
 
-        // สร้าง Quick Reply ที่เชื่อมกลับไปยังเมนูหลัก
-        $quickActions = [
-            [
-                "action" => [
-                    "type" => "message",
-                    "label" => "กลับไปที่เมนูหลัก",
-                    "text" => "กลับไปที่เมนูหลัก"
-                ]
+    // สร้าง Quick Reply ที่เชื่อมกลับไปยังเมนูหลัก
+    $quickActions = [
+        [
+            "action" => [
+                "type" => "message",
+                "label" => "กลับไปที่เมนูหลัก",
+                "text" => "กลับไปที่เมนูหลัก"
             ]
-        ];
+        ]
+    ];
 
-        sendQuickReply($replyToken, $message, $accessToken, $quickActions);
+    sendQuickReply($replyToken, $message, $accessToken, $quickActions);
 
-        // อัปเดต state ให้กลับไปที่เมนูหลัก
-        updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
+    // อัปเดต state ให้กลับไปที่เมนูหลัก
+    updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
 
-        // ส่งเมนูหลัก
-        sendToMainMenu($replyToken, $accessToken);
-    }
+    // ส่งเมนูหลัก
+    sendToMainMenu($replyToken, $accessToken);
+}
 }
 
 
@@ -444,8 +475,8 @@ function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
             ];
         }
 
-        // ส่ง Quick Reply สำหรับการเลือกหมายเลขบิล
-        $quickActions[] = [
+         // ส่ง Quick Reply สำหรับการเลือกหมายเลขบิล
+         $quickActions[] = [
             "action" => [
                 "type" => "message",
                 "label" => "ไม่สนใจบิล",
@@ -459,6 +490,17 @@ function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
         sendReply($replyToken, $message, $accessToken);
     }
 }
+
+// ฟังก์ชันในการตอบกลับเมื่อผู้ใช้เลือก "ไม่สนใจบิล" จาก Quick Reply
+function handleIgnoreBill($replyToken, $userId, $conn, $accessToken) {
+    // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+    $welcomeMenu = createWelcomeMenu("สมาชิก");  // สามารถปรับชื่อสมาชิกตามความเหมาะสม
+    sendFlexReply($replyToken, $welcomeMenu, $accessToken);  // ส่งเมนูหลักไปยังผู้ใช้
+
+    // อัปเดตสถานะผู้ใช้ให้เป็น "WAITING_MAIN_MENU"
+    updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
+}
+
 
 function showBillDetails($replyToken, $billNumber, $conn, $accessToken) { 
     error_log("Retrieving details for bill number: " . $billNumber);
@@ -621,9 +663,18 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
 }
 
 function handleMessage($replyToken, $userMessage, $userId, $conn, $accessToken) {
-    $lowerMsg = strtolower(trim($userMessage));
+    $lowerMsg = strtolower(trim($userMessage));  // ทำให้ข้อความทั้งหมดเป็นตัวเล็ก
     $currentState = getUserState($userId, $conn);
 
+    // ตรวจสอบว่าผู้ใช้พิมพ์คำว่า "เมนูหลัก", "home", "กลับ", หรือ "หน้าแรก"
+    if (in_array($lowerMsg, ['เมนูหลัก', 'home', 'กลับ', 'หน้าแรก'])) {
+        // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+        $welcomeMenu = createWelcomeMenu("สมาชิก");  // สามารถปรับชื่อสมาชิกตามความเหมาะสม
+        sendFlexReply($replyToken, $welcomeMenu, $accessToken);  // ส่งเมนูหลักไปยังผู้ใช้
+
+        updateUserState($userId, 'WAITING_MAIN_MENU', $conn);  // อัปเดตสถานะผู้ใช้ให้เป็น "WAITING_MAIN_MENU"
+        return;
+    }
     // ตรวจสอบว่าเป็นหมายเลขบิลหรือไม่ (เช่น เป็นตัวเลข 9-10 หลัก)
     if (preg_match('/^[0-9]{9,10}$/', $userMessage)) {
         // ถ้าเป็นรูปแบบของหมายเลขบิล (ตัวเลข 9-10 หลัก) 
@@ -790,7 +841,7 @@ function showHelp($replyToken, $accessToken) {
                "1. พิมพ์ 'เข้าสู่ระบบ' เพื่อยืนยันตัวตน\n" . 
                "2. กรอกอีเมลที่ลงทะเบียนไว้\n" . 
                "3. เลือกเมนูที่ต้องการใช้งาน\n\n" . 
-               "หากพบปัญหา กรุณาติดต่อเจ้าหน้าที่";
+               "4. เมื่อใช้เสร็จแล้วถ้าจะกลับไปที่เมนูหลักต้องพิมพ์คำว่า 'เมนูหลัก,กลับ' หรือ 'home'";
     sendReply($replyToken, $message, $accessToken);
 }
 
